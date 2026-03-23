@@ -2,6 +2,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
+export const isApiKeyMissing = !process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "undefined";
+
 export interface YouTubeKeyword {
   keyword: string;
   searchVolume: number;

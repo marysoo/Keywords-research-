@@ -12,7 +12,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { getKeywordInsights, getTrendingKeywords, getYouTubeNicheKeywords, KeywordData, TrendingKeyword, YouTubeKeyword } from './services/geminiService';
+import { getKeywordInsights, getTrendingKeywords, getYouTubeNicheKeywords, KeywordData, TrendingKeyword, YouTubeKeyword, isApiKeyMissing } from './services/geminiService';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -35,6 +35,11 @@ export default function App() {
     if (e) e.preventDefault();
     if (!query.trim()) return;
 
+    if (isApiKeyMissing) {
+      setError('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setData(null);
@@ -54,6 +59,11 @@ export default function App() {
     if (e) e.preventDefault();
     if (!location.trim()) return;
 
+    if (isApiKeyMissing) {
+      setError('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setData(null);
@@ -72,6 +82,11 @@ export default function App() {
   const handleYouTubeSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!niche.trim()) return;
+
+    if (isApiKeyMissing) {
+      setError('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -173,6 +188,16 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
+      {/* API Key Warning */}
+      {isApiKeyMissing && (
+        <div className="bg-amber-50 border-b border-amber-100 py-2 px-4 text-center">
+          <p className="text-xs font-bold text-amber-700 flex items-center justify-center gap-2">
+            <ShieldAlert className="w-4 h-4" />
+            Warning: GEMINI_API_KEY is not set. The app will not be able to fetch real-time data.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
