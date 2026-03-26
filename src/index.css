@@ -27,3 +27,18 @@
 @utility stat-label {
   @apply text-sm font-medium text-slate-500 uppercase tracking-wider;
 }
+
+@utility custom-scrollbar {
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    @apply bg-slate-200 rounded-full;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-300;
+  }
+}

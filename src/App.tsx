@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, TrendingUp, MapPin, Calendar, BarChart3, Loader2, ArrowRight, Info, Youtube, Video, Image as ImageIcon, Globe, Zap, ShieldCheck, ShieldAlert, Shield, PlayCircle, Sparkles, Lightbulb, Download, FileJson } from 'lucide-react';
+import { Search, TrendingUp, MapPin, Calendar, BarChart3, Loader2, ArrowRight, Info, Youtube, Video, Image as ImageIcon, Globe, Zap, ShieldCheck, ShieldAlert, Shield, PlayCircle, Sparkles, Lightbulb, Download, FileJson, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, 
@@ -12,9 +12,18 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { getKeywordInsights, getTrendingKeywords, getYouTubeNicheKeywords, KeywordData, TrendingKeyword, YouTubeKeyword, isApiKeyMissing } from './services/geminiService';
+import { getKeywordInsights, getTrendingKeywords, getYouTubeNicheKeywords, KeywordData, TrendingKeyword, YouTubeKeyword, isApiKeyMissing, setDynamicApiKey, getApiKey } from './services/geminiService';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+declare global {
+  interface Window {
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -30,13 +39,69 @@ export default function App() {
   const [trendingData, setTrendingData] = useState<TrendingKeyword[] | null>(null);
   const [youtubeData, setYoutubeData] = useState<YouTubeKeyword[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMessage, setLoadingMessage] = useState("Analyzing search data...");
+
+  const loadingMessages = [
+    "Searching the web for real-time data...",
+    "Analyzing monthly search volumes...",
+    "Identifying geographic trends...",
+    "Calculating platform engagement...",
+    "Finding low-competition opportunities...",
+    "Structuring insights for you...",
+    "Almost there, finalizing report..."
+  ];
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (loading) {
+      let i = 0;
+      setLoadingMessage(loadingMessages[0]);
+      interval = setInterval(() => {
+        i = (i + 1) % loadingMessages.length;
+        setLoadingMessage(loadingMessages[i]);
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [tempKey, setTempKey] = useState(getApiKey() || '');
+  const [hasPlatformKey, setHasPlatformKey] = useState(false);
+
+  useEffect(() => {
+    const checkPlatformKey = async () => {
+      if (window.aistudio) {
+        try {
+          const hasKey = await window.aistudio.hasSelectedApiKey();
+          setHasPlatformKey(hasKey);
+        } catch (e) {
+          console.error("Failed to check platform key", e);
+        }
+      }
+    };
+    checkPlatformKey();
+  }, []);
+
+  const handleConnectPlatform = async () => {
+    if (window.aistudio) {
+      try {
+        await window.aistudio.openSelectKey();
+        setHasPlatformKey(true);
+        setError(null);
+        // Refresh the page or the service to use the new key
+        window.location.reload();
+      } catch (e) {
+        console.error("Failed to open key selector", e);
+      }
+    }
+  };
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
 
-    if (isApiKeyMissing) {
-      setError('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
+    if (isApiKeyMissing()) {
+      setError('Gemini API Key is missing. Please set it in Settings or environment variables.');
+      setShowKeyModal(true);
       return;
     }
 
@@ -46,7 +111,7 @@ export default function App() {
     setTrendingData(null);
     setYoutubeData(null);
     try {
-      const result = await getKeywordInsights(query);
+      const result = await getKeywordInsights(query, location || "Global");
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
@@ -59,8 +124,9 @@ export default function App() {
     if (e) e.preventDefault();
     if (!location.trim()) return;
 
-    if (isApiKeyMissing) {
-      setError('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
+    if (isApiKeyMissing()) {
+      setError('Gemini API Key is missing. Please set it in Settings or environment variables.');
+      setShowKeyModal(true);
       return;
     }
 
@@ -83,8 +149,9 @@ export default function App() {
     if (e) e.preventDefault();
     if (!niche.trim()) return;
 
-    if (isApiKeyMissing) {
-      setError('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
+    if (isApiKeyMissing()) {
+      setError('Gemini API Key is missing. Please set it in Settings or environment variables.');
+      setShowKeyModal(true);
       return;
     }
 
@@ -145,6 +212,10 @@ export default function App() {
       csvContent += `Platform,YouTube,${data.platformUsage.youtube},\n`;
       csvContent += `Platform,Pinterest,${data.platformUsage.pinterest},\n`;
       csvContent += `Platform,TikTok,${data.platformUsage.tiktok},\n`;
+      csvContent += "\nTop Locations\n";
+      data.topLocations.forEach(tl => {
+        csvContent += `Location,${tl.location},${tl.volume},\n`;
+      });
       csvContent += "\nRelated Keywords\n";
       data.relatedKeywords.forEach(rk => {
         csvContent += `Related,${rk.keyword},${rk.volume},${rk.competition || ''}\n`;
@@ -186,17 +257,202 @@ export default function App() {
     }
   };
 
+  const saveApiKey = () => {
+    setDynamicApiKey(tempKey);
+    setShowKeyModal(false);
+    setError(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
-      {/* API Key Warning */}
-      {isApiKeyMissing && (
-        <div className="bg-amber-50 border-b border-amber-100 py-2 px-4 text-center">
-          <p className="text-xs font-bold text-amber-700 flex items-center justify-center gap-2">
-            <ShieldAlert className="w-4 h-4" />
-            Warning: GEMINI_API_KEY is not set. The app will not be able to fetch real-time data.
-          </p>
+      {/* API Key Warning / Platform Connection */}
+      {((isApiKeyMissing() && !hasPlatformKey) || (window.aistudio && !hasPlatformKey)) && (
+        <div className="bg-indigo-50 border-b border-indigo-100 py-2.5 px-4 text-center">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-6">
+            <p className="text-xs font-bold text-indigo-900 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-indigo-600 animate-pulse" />
+              Connect your Gemini API Key to enable keyword insights.
+            </p>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setShowKeyModal(true)}
+                className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-1.5 rounded-full font-bold transition-all shadow-lg shadow-indigo-200"
+              >
+                Setup Free Key
+              </button>
+              {window.aistudio && (
+                <button 
+                  onClick={handleConnectPlatform}
+                  className="text-xs text-indigo-600 hover:underline font-bold flex items-center gap-1"
+                  title="Only for Paid accounts"
+                >
+                  <Zap className="w-3 h-3" />
+                  Connect Paid Account
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
+
+      {/* API Key Modal */}
+      <AnimatePresence>
+        {showKeyModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+            >
+              {/* Modal Header - Sticky */}
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-100 rounded-xl text-indigo-600">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900">API Settings</h2>
+                </div>
+                <button 
+                  onClick={() => setShowKeyModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              {/* Modal Body - Scrollable */}
+              <div className="p-6 overflow-y-auto custom-scrollbar">
+                <div className="space-y-6">
+                  {/* Option 1: Free Key */}
+                  <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-indigo-600" />
+                        Option 1: Free Key (Recommended)
+                      </h3>
+                      <a 
+                        href="https://aistudio.google.com/app/apikey" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-[10px] bg-white border border-indigo-200 text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50 font-bold transition-colors"
+                      >
+                        Get Key Here
+                      </a>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <label className="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">
+                        Paste Your Key Below
+                      </label>
+                      <div className="relative">
+                        <input 
+                          type="password"
+                          value={tempKey}
+                          onChange={(e) => setTempKey(e.target.value)}
+                          placeholder="AI Studio API Key..."
+                          className="w-full pl-4 pr-12 py-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-sm"
+                        />
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400">
+                          <Zap className="w-5 h-5" />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-indigo-600/70 leading-relaxed italic">
+                        * Free keys provide AI-estimated search data. No credit card required.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="relative py-1">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-slate-100"></div>
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase font-bold">
+                      <span className="bg-white px-3 text-slate-300 tracking-widest">OR</span>
+                    </div>
+                  </div>
+
+                  {/* Option 2: Paid Account */}
+                  <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <h3 className="text-sm font-bold text-slate-900 mb-2 flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-500" />
+                      Option 2: Paid Account
+                    </h3>
+                    <p className="text-[10px] text-slate-500 mb-4 leading-relaxed">
+                      Connect directly if you have a <span className="font-bold">Paid Google Cloud Project</span> with billing enabled for real-time search data.
+                    </p>
+                    
+                    {window.aistudio && (
+                      <button 
+                        onClick={handleConnectPlatform}
+                        className="w-full py-2.5 px-4 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-xs"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        Connect Paid AI Studio
+                      </button>
+                    )}
+                    
+                    <div className="mt-3 p-2 bg-amber-50 border border-amber-100 rounded-lg">
+                      <p className="text-[9px] text-amber-700 leading-tight">
+                        ⚠️ If you see a "No Paid Project" error after clicking this, please use <span className="font-bold">Option 1</span> instead.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-indigo-500" />
+                      Deployment Instructions
+                    </h3>
+                    <div className="space-y-3 text-xs text-slate-600">
+                      <div>
+                        <p className="font-bold text-slate-800">Netlify / Vercel:</p>
+                        <p>Add environment variable <code className="bg-slate-200 px-1 rounded">GEMINI_API_KEY</code> in your dashboard and re-deploy.</p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-800">GitHub Pages:</p>
+                        <p>Add a Repository Secret named <code className="bg-slate-200 px-1 rounded">GEMINI_API_KEY</code> and update your Actions workflow.</p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-800">Local Development:</p>
+                        <p>Create a <code className="bg-slate-200 px-1 rounded">.env</code> file in the root with <code className="bg-slate-200 px-1 rounded">GEMINI_API_KEY=your_key</code>.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer - Sticky */}
+              <div className="p-6 border-t border-slate-100 bg-slate-50 shrink-0">
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowKeyModal(false)}
+                    className="flex-1 py-3 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl transition-colors text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={saveApiKey}
+                    className="flex-1 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all text-sm"
+                  >
+                    Save Key
+                  </button>
+                </div>
+                <div className="mt-4 text-center">
+                  <a 
+                    href="https://aistudio.google.com/app/apikey" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-indigo-600 hover:underline font-medium inline-flex items-center gap-1"
+                  >
+                    Get a free API key from Google AI Studio <ArrowRight className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -207,8 +463,20 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">Keyword Insights Pro</h1>
           </div>
-          <div className="hidden sm:flex items-center gap-4 text-sm font-medium text-slate-500">
-            <span>Powered by Gemini Search</span>
+          <div className="flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-4 text-sm font-medium text-slate-500">
+              <span>Powered by Gemini Search</span>
+            </div>
+            <button 
+              onClick={() => setShowKeyModal(true)}
+              className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all relative"
+              title="Settings"
+            >
+              <Zap className={cn("w-5 h-5", isApiKeyMissing() && !hasPlatformKey && "text-amber-500 animate-pulse")} />
+              {isApiKeyMissing() && !hasPlatformKey && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+              )}
+            </button>
           </div>
         </div>
       </header>
@@ -275,21 +543,35 @@ export default function App() {
           </motion.p>
 
           {mode === 'search' ? (
-            <form onSubmit={handleSearch} className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Search className="h-5 w-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+            <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1 group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                </div>
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Keyword (e.g., 'AI tools')"
+                  className="block w-full pl-11 pr-4 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-slate-900 placeholder:text-slate-400"
+                />
               </div>
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Enter a keyword (e.g., 'artificial intelligence')"
-                className="block w-full pl-11 pr-32 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-slate-900 placeholder:text-slate-400"
-              />
+              <div className="relative flex-1 group sm:max-w-[200px]">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <MapPin className="h-5 w-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                </div>
+                <input
+                  type="text"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Location (Global)"
+                  className="block w-full pl-11 pr-4 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-slate-900 placeholder:text-slate-400"
+                />
+              </div>
               <button
                 type="submit"
                 disabled={loading || !query.trim()}
-                className="absolute right-2 top-2 bottom-2 px-6 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                className="px-8 py-4 bg-indigo-600 text-white font-semibold rounded-2xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze'}
               </button>
@@ -363,7 +645,8 @@ export default function App() {
                   <TrendingUp className="w-6 h-6 text-indigo-600" />
                 </div>
               </div>
-              <p className="mt-6 text-slate-600 font-medium animate-pulse">Analyzing search data via Google Search...</p>
+              <p className="mt-6 text-slate-600 font-medium animate-pulse">{loadingMessage}</p>
+              <p className="mt-2 text-xs text-slate-400">This may take a few seconds as we fetch live data from Google Search.</p>
             </motion.div>
           ) : data ? (
             <motion.div 
@@ -375,8 +658,19 @@ export default function App() {
               {/* Header with Export */}
               <div className="lg:col-span-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-2">
                 <div>
-                  <h3 className="text-2xl font-bold text-slate-900">Analysis for "{data.keyword}"</h3>
-                  <p className="text-slate-500">Comprehensive search and platform insights.</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-2xl font-bold text-slate-900">Analysis for "{data.keyword}"</h3>
+                    {data.isEstimated && (
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full border border-amber-200">
+                        ESTIMATED DATA
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-slate-500">
+                    {data.isEstimated 
+                      ? "Insights based on AI training data (Real-time search unavailable with free key)." 
+                      : "Comprehensive search and platform insights."}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <button 
@@ -411,13 +705,24 @@ export default function App() {
 
                 <div className="stat-card">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="stat-label">Top Location</span>
-                    <MapPin className="w-4 h-4 text-rose-500" />
+                    <span className="stat-label">Top 3 Locations (Asc)</span>
+                    <TrendingUp className="w-4 h-4 text-emerald-500" />
                   </div>
-                  <div className="stat-value truncate" title={data.topLocation}>
-                    {data.topLocation}
+                  <div className="space-y-1">
+                    {data.topLocations
+                      .sort((a, b) => a.volume - b.volume)
+                      .slice(0, 3)
+                      .map((loc, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-700 font-medium truncate max-w-[100px]">{loc.location}</span>
+                          <span className="text-slate-500 font-bold">{loc.volume.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    {data.topLocations.length === 0 && (
+                      <div className="text-xs text-slate-400 italic">No location data</div>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">Highest regional interest</p>
+                  <p className="text-[10px] text-slate-400 mt-2">Sorted by volume ascending</p>
                 </div>
 
                 <div className="stat-card">
@@ -568,6 +873,53 @@ export default function App() {
                           </div>
                         </div>
                         <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-transform group-hover:translate-x-1" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Alternative Suggestions */}
+                <div className="glass-card p-6">
+                  <h3 className="text-lg font-bold text-slate-900 mb-1">Alternative Angles</h3>
+                  <p className="text-sm text-slate-500 mb-6">Complementary search terms</p>
+                  
+                  <div className="space-y-4">
+                    {data.alternativeKeywords.map((item, idx) => (
+                      <div 
+                        key={idx} 
+                        className="p-4 rounded-xl bg-indigo-50/30 border border-indigo-100/50 hover:border-indigo-300 transition-all group"
+                      >
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-indigo-400" />
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">{item.keyword}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <p className="text-[10px] text-slate-500">{item.volume.toLocaleString()} searches/mo</p>
+                                <span className={cn(
+                                  "text-[10px] px-1.5 py-0.5 rounded-md border font-bold flex items-center gap-1",
+                                  getCompetitionColor(item.competition)
+                                )}>
+                                  {getCompetitionIcon(item.competition)}
+                                  {item.competition} Comp.
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setQuery(item.keyword);
+                              handleSearch();
+                            }}
+                            className="p-1.5 bg-white rounded-lg border border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                            title="Search this keyword"
+                          >
+                            <Search className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-600 leading-relaxed italic">
+                          "{item.reason}"
+                        </p>
                       </div>
                     ))}
                   </div>
