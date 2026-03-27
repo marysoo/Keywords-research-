@@ -350,15 +350,29 @@ export default function App() {
                           type="password"
                           value={tempKey}
                           onChange={(e) => setTempKey(e.target.value)}
-                          placeholder="AI Studio API Key..."
-                          className="w-full pl-4 pr-12 py-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-sm"
+                          placeholder="Example: AIzaSyB..."
+                          className={cn(
+                            "w-full pl-4 pr-12 py-3 bg-white border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-sm",
+                            tempKey && !tempKey.startsWith('AIza') ? "border-amber-300 bg-amber-50" : "border-indigo-200"
+                          )}
                         />
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400">
                           <Zap className="w-5 h-5" />
                         </div>
                       </div>
+                      {tempKey && !tempKey.startsWith('AIza') && (
+                        <div className="mt-2 p-2 bg-amber-100 border border-amber-200 rounded-lg">
+                          <p className="text-[10px] text-amber-800 font-bold flex items-center gap-1">
+                            <ShieldAlert className="w-3 h-3" />
+                            Format Warning:
+                          </p>
+                          <p className="text-[9px] text-amber-700 leading-tight mt-0.5">
+                            This looks like a Project ID (e.g., "gen-lang-client..."). The API Key should start with <span className="font-bold underline">AIza</span> and be much longer.
+                          </p>
+                        </div>
+                      )}
                       <p className="text-[10px] text-indigo-600/70 leading-relaxed italic">
-                        * Free keys provide AI-estimated search data. No credit card required.
+                        * Note: Go to Google AI Studio, click "Get API key", then click "Copy" on the key itself (not the project name).
                       </p>
                     </div>
                   </div>
